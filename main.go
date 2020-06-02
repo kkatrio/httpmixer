@@ -5,6 +5,7 @@ import (
 		"fmt"
 		//"io/ioutil"
 		"sync"
+		"golang.org/x/net/http2"
 )
 
 //body, err := ioutil.ReadAll(resp.Body)
@@ -13,19 +14,24 @@ import (
 //}
 //fmt.Println(string(body))
 
+type Work struct {
+	method string
+	data string
+	n int
+}
 
-func runWorker(client *http.Client, nReqs int, method string) {
+func (w *Work) runWorker(client *http.Client) {
 
-	req, err := http.NewRequest(method, "http://example.com", nil)
+	req, err := http.NewRequest(w.method, "http://example.com", nil)
 	if err != nil {
 		fmt.Println("did not create new request")
 	}
-	for i := 0; i < nReqs; i++ {
+	for i := 0; i < w.n; i++ {
 		resp, err := client.Do(req)
 		if err != nil {
 			fmt.Println("did not do request")
 		}
-		fmt.Println(resp.Status, "did ", method)
+		fmt.Println(resp.Status, "did ", w.method)
 	}
 }
 
@@ -33,20 +39,40 @@ func makeConcurrentRequests() {
 	var wg sync.WaitGroup
 	wg.Add(4) // sum of concurrent workers
 
-	client := &http.Client{}
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         b.Request.Host,
+		},
+		MaxIdleConnsPerHost: min(b.C, maxIdleConn),
+		DisableCompression:  b.DisableCompression,
+		DisableKeepAlives:   b.DisableKeepAlives,
+		Proxy:               http.ProxyURL(b.ProxyAddr),
+	}
 
-	nGETReqs := 10
+
+	client := &http.Client{}
+	wGET := &Work{
+		method: "GET",
+		data: "",
+		n : 2,
+	}
+	wPOST := &Work{
+		method: "POST",
+		data: "",
+		n : 3,
+	}
+
 	for i := 0; i < 2; i++ { // concurent workers
 		go func() {
-			runWorker(client, nGETReqs, "GET")
+			wGET.runWorker(client)
 			wg.Done()
 		}()
 	}
 
-	nPOSTReqs := 5
 	for i := 0; i < 2; i++ { // concurent workers
 		go func() {
-			runWorker(client, nPOSTReqs, "POST")
+			wPOST.runWorker(client)
 			wg.Done()
 		}()
 	}
